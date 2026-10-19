@@ -2040,6 +2040,7 @@ Status: realizado (já aconteceu) ou previsto (vai acontecer).
 Regras:
 - valor sempre positivo, em reais, número com ponto decimal. No ajuste, valor é o saldo novo da conta (pode ser negativo se a conta estiver no vermelho), status realizado e data de hoje, a não ser que a frase diga outra.
 - Uma frase pode ter mais de um lançamento (ex.: o saldo de duas contas): devolva um item para cada.
+- Número que só dá contexto não é o valor: em "nos 15 mil que estão guardados rendeu 370" o lançamento é um rendimento de 370.
 - Nunca invente valor, data ou conta. Algo já realizado sem dizer o banco ou o cartão: conta null e preencha "faltando". "Cartão do Sicoob" ou "crédito do Sicoob" é o cartão, não a conta Sicoob. Compra no crédito sem dizer qual cartão: conta null e pergunte qual cartão.
 - Se a frase for o pagamento ou recebimento de uma conta fixa cadastrada, preencha "fixa" com o id dela.
 - Compra parcelada no cartão: um lançamento por parcela com o valor da parcela; a primeira na data da compra como realizado, as outras como previsto, uma por mês.
@@ -2152,7 +2153,7 @@ const CATS = [
   [/show|cache/, 'Shows', 'Show'], [/telos/, 'Clientes', 'Telos'], [/havaianas/, 'Clientes', 'Havaianas'], [/talent/, 'Clientes', 'Talent'],
   [/lider/, 'Clientes', 'Líder Imóveis'], [/paulista/, 'Clientes', 'Paulista'], [/pro.?labore|beecom|bicom/, 'Pró-labore', 'Pró-labore Beecom'],
   [/cliente|projeto|freela/, 'Clientes', 'Trabalho pontual'],
-  [/rendeu|rendimento|juros/, 'Rendimentos', 'Rendimento da reserva'], [/parcela/, 'Dívidas', 'Parcela']
+  [/\brend(?:eu|eram|e|em|imentos?)\b|juros/, 'Rendimentos', 'Rendimento da reserva'], [/parcela/, 'Dívidas', 'Parcela']
 ];
 function parseLocal(raw) {
   let t = ' ' + semAcento(raw) + ' ';
@@ -2162,12 +2163,22 @@ function parseLocal(raw) {
   let parc = null, m = t.match(/(?:em\s+)?(\d{1,2}|uma?|duas|dois|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)\s*(?:x|vezes|parcelas)\b/);
   if (m) { parc = NUMW[m[1]] || parseInt(m[1], 10); t = t.replace(m[0], ' '); }
   let dia = null; m = t.match(/\bdia\s+(\d{1,2})\b/); if (m) { dia = parseInt(m[1], 10); t = t.replace(m[0], ' '); }
-  let valor = null; m = t.match(/(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?\s*(mil|k)?\b/);
+  /* com mais de um número, o valor é o do lançamento: o que vem depois do verbo ("rendeu 370"),
+     não o que só dá contexto ("nos 15 mil que estão guardados", "101% do CDI", "10/10") */
+  const nums = [...t.matchAll(/(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?\s*(mil|k)?\b/g)]
+    .filter(x => t[x.index - 1] !== '/' && !/^\s*[/%]/.test(t.slice(x.index + x[0].length)));
+  const antes = x => t.slice(0, x.index), depois = x => t.slice(x.index + x[0].length);
+  const contexto = x => /\b(?:[dn]os?|sobre(?:\s+os)?|em cima d[eo]s?)\s+$/.test(antes(x)) || /^\s*(?:que\s+(?:estao|esta|tenho|tem|ficam?)\b|guardad|aplicad|investid|parad)/.test(depois(x));
+  const marcado = x => /^r\$/.test(x[0]) || /^\s*(?:reais|real)\b/.test(depois(x));
+  const verbo = t.search(/\b(paguei|recebi|comprei|gastei|rendeu|renderam|rende|rendem|caiu|entrou|transferi|apliquei|aportei|guardei|resgatei|depositei|depositou|tirei|pagar|receber)\b/);
+  const fortes = nums.filter(x => !contexto(x));
+  m = nums.length < 2 ? nums[0] : fortes.find(marcado) || (verbo >= 0 && fortes.find(x => x.index > verbo)) || fortes[0] || nums[0];
+  let valor = null;
   if (m) { valor = parseFloat(m[1].replace(/\./g, '') + (m[2] ? '.' + m[2] : '')); if (m[3]) valor *= 1000; }
-  const feito = has(/\b(paguei|recebi|comprei|gastei|rendeu|caiu|entrou|transferi|apliquei|aportei|guardei|resgatei|depositei|tirei)\b/);
+  const feito = has(/\b(paguei|recebi|comprei|gastei|rendeu|renderam|caiu|entrou|transferi|apliquei|aportei|guardei|resgatei|depositei|tirei)\b/);
   const futuro = has(/\b(vou|vai|vence|vencendo|vencer|tenho uma|tenho que|preciso pagar|previst\w*|proxim\w*|amanha|semana que vem|mes que vem)\b/) || (dia !== null && !feito);
   let tipo = 'despesa';
-  if (has(/\b(rendeu|rendimento|dividendo\w*|juros)\b/)) tipo = 'rendimento';
+  if (has(/\b(rend(?:eu|eram|e|em|imentos?)|dividendo\w*|juros)\b/)) tipo = 'rendimento';
   else if (has(/\b(guardei|apliquei|aportei|aporte|investi|guardar)\b/)) tipo = 'aporte';
   else if (has(/\b(resgatei|resgate|tirei da reserva)\b/)) tipo = 'resgate';
   else if (has(/\bfatura\b/) && has(/\b(paguei|pagar|pago)\b/)) tipo = 'fatura';
