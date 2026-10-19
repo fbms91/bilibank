@@ -105,6 +105,8 @@
       r = await fetch('/api/interpretar', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ input, json }) });
     } catch (e) { throw { code: 'rede', message: 'Sem internet agora.' }; }
     const corpo = await r.json().catch(() => ({}));
+    /* sem a chave do Claude no servidor, o painel deixa de tentar e usa o leitor próprio */
+    if (corpo.code === 'chave') throw { code: 'capability_disabled', message: corpo.message };
     if (!r.ok) throw { code: corpo.code || 'erro', message: corpo.message || 'A interpretação falhou.' };
     return corpo;
   }
@@ -129,9 +131,22 @@
   .bl-box input:focus{border-color:rgba(255,255,255,.4)}
   .bl-btn{background:#f4f4f1;color:#000;border:0;border-radius:999px;padding:14px 18px;font:700 15px/1 "Hanken Grotesk",system-ui,-apple-system,sans-serif;cursor:pointer;margin-top:6px}
   .bl-btn[disabled]{opacity:.5}
+  .bl-link{background:none;border:0;color:#a3a29b;font:600 14px/1.3 "Hanken Grotesk",system-ui,-apple-system,sans-serif;cursor:pointer;padding:6px;text-decoration:underline;text-underline-offset:3px}
   .bl-msg{font-size:14px;line-height:1.45;color:#a3a29b;min-height:20px;margin:0}
   .bl-msg.erro{color:#ff6b6b}`;
-  let el = null;
+  let el = null, criar = false;
+  /* o primeiro acesso cria o login já confirmado (função primeiro-acesso no Supabase);
+     depois dele o banco recusa qualquer cadastro novo */
+  async function primeiroAcesso(email, senha) {
+    const k = CFG.supabaseAnonKey, h = { 'Content-Type': 'application/json', apikey: k };
+    if (!k.startsWith('sb_')) h.Authorization = 'Bearer ' + k;
+    let r;
+    try { r = await fetch(CFG.supabaseUrl + '/functions/v1/primeiro-acesso', { method: 'POST', headers: h, body: JSON.stringify({ email, senha }) }); }
+    catch (e) { return { erro: 'Sem internet agora.' }; }
+    const c = await r.json().catch(() => ({}));
+    if (!r.ok) return { erro: c.message || 'Não consegui criar o acesso.', fechado: c.code === 'fechado' };
+    return {};
+  }
   function mostrarLogin(msg, erro) {
     if (!el) {
       const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
@@ -140,28 +155,36 @@
     }
     if (!temConfig) {
       el.innerHTML = `<div class="bl-box"><div class="bl-brand"><div class="bl-mark">B</div><div class="bl-name">Bilibank<span>Falta configurar</span></div></div>
-        <p class="bl-msg">O app ainda não está ligado ao banco de dados. Confira as variáveis SUPABASE_URL e SUPABASE_ANON_KEY no Vercel e publique de novo.</p></div>`;
+        <p class="bl-msg">O app ainda não está ligado ao banco de dados. O Claude termina essa parte e o app passa a abrir aqui.</p></div>`;
       return;
     }
-    /* o acesso do Filipe é criado no painel do Supabase; o app só entra */
     el.innerHTML = `<form class="bl-box" id="bl-form" novalidate>
-      <div class="bl-brand"><div class="bl-mark">B</div><div class="bl-name">Bilibank<span>Entre para ver seus números</span></div></div>
+      <div class="bl-brand"><div class="bl-mark">B</div><div class="bl-name">Bilibank<span>${criar ? 'Primeiro acesso: crie sua senha' : 'Entre para ver seus números'}</span></div></div>
       <div><label for="bl-email">E-mail</label><input id="bl-email" type="email" autocomplete="username" inputmode="email" required></div>
-      <div><label for="bl-senha">Senha</label><input id="bl-senha" type="password" autocomplete="current-password" required></div>
-      <button class="bl-btn" id="bl-ok" type="submit">Entrar</button>
+      <div><label for="bl-senha">${criar ? 'Crie uma senha' : 'Senha'}</label><input id="bl-senha" type="password" autocomplete="${criar ? 'new-password' : 'current-password'}" required></div>
+      <button class="bl-btn" id="bl-ok" type="submit">${criar ? 'Criar acesso' : 'Entrar'}</button>
       <p class="bl-msg ${erro ? 'erro' : ''}" id="bl-msg" role="status" aria-live="polite"></p>
+      <button class="bl-link" id="bl-troca" type="button">${criar ? 'Já tenho senha' : 'Primeiro acesso'}</button>
     </form>`;
-    el.querySelector('#bl-msg').textContent = msg || '';
+    el.querySelector('#bl-msg').textContent = msg || (criar ? 'Use pelo menos 8 caracteres. Só o primeiro acesso pode ser criado.' : '');
+    el.querySelector('#bl-troca').onclick = () => { criar = !criar; mostrarLogin(); };
     el.querySelector('#bl-form').onsubmit = async ev => {
       ev.preventDefault();
       const email = el.querySelector('#bl-email').value.trim(), senha = el.querySelector('#bl-senha').value;
       const m = el.querySelector('#bl-msg'), b = el.querySelector('#bl-ok');
-      if (!email || !senha) { m.className = 'bl-msg erro'; m.textContent = 'Preencha e-mail e senha.'; return; }
-      b.disabled = true; m.className = 'bl-msg'; m.textContent = 'Entrando…';
+      const falha = t => { b.disabled = false; m.className = 'bl-msg erro'; m.textContent = t; };
+      if (!email || !senha) return falha('Preencha e-mail e senha.');
+      if (criar && senha.length < 8) return falha('Use uma senha de pelo menos 8 caracteres.');
+      b.disabled = true; m.className = 'bl-msg'; m.textContent = criar ? 'Criando seu acesso…' : 'Entrando…';
+      if (criar) {
+        const c = await primeiroAcesso(email, senha);
+        if (c.fechado) { criar = false; mostrarLogin(c.erro, true); return; }
+        if (c.erro) return falha(c.erro);
+      }
       const r = await sb.auth.signInWithPassword({ email, password: senha });
+      if (r.error) return falha(traduz(r.error.message));
       b.disabled = false;
-      if (r.error) { m.className = 'bl-msg erro'; m.textContent = traduz(r.error.message); return; }
-      if (r.data.session) iniciar(r.data.session);
+      if (r.data.session) { criar = false; iniciar(r.data.session); }
     };
   }
   function traduz(m) {
