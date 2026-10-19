@@ -25,7 +25,7 @@ O Bilibank como app no iPhone: o mesmo painel que roda no Claude, instalado na t
 4. Copiar os dados atuais:
    1. Exportar o banco do painel no Claude para uma pasta fora do repositório.
    2. Gerar o SQL com `node scripts/gerar-migracao.mjs <pasta> <saida.sql>` e rodá-lo no projeto.
-   3. Pode rodar antes do primeiro acesso: os dados esperam em `docs_import` e o primeiro login adota tudo.
+   3. Pode rodar antes do primeiro acesso: os dados ficam em `docs_import` (cópia do que veio do Claude) e o primeiro login adota tudo.
 5. Pôr a Project URL e a chave **publishable** em `public/config.js` e mandar para o GitHub. O Vercel publica sozinho a cada envio.
 
 ### Depois, se quiser: interpretação pelo Claude

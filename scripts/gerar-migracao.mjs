@@ -2,7 +2,8 @@
    Entrada: uma pasta com um .json por documento (config/base.json, fixas/agua.json, lanc/<id>.json),
    exportada do banco do painel pelo Claude logo antes da troca.
    Saída: um .sql para rodar no Supabase depois do 01-esquema.sql, antes ou depois do primeiro acesso:
-   sem acesso ainda, os dados esperam em docs_import e o primeiro login adota tudo; com o acesso, vão direto.
+   os dados ficam guardados em docs_import (cópia do que veio do Claude) e vão para a conta do Filipe:
+   na hora, se o acesso já existe, ou no primeiro login, pelo gatilho bilibank_adotar.
    O arquivo gerado tem os dados financeiros: não vai para o GitHub nem para a pasta public.
    Rodar: node scripts/gerar-migracao.mjs <pasta-exportada> <saida.sql> */
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
@@ -50,17 +51,16 @@ begin
 ${linhas.join(",\n")}
   on conflict (path) do update set data = excluded.data;
 
-  -- com o acesso já criado, os dados vão direto para ele; senão esperam o primeiro login
+  -- com o acesso já criado, os dados vão direto para ele; senão o primeiro login adota tudo
   select id into dono from auth.users;
   if dono is not null then
     insert into public.docs (owner, path, data)
       select dono, path, data from public.docs_import
       on conflict (owner, path) do update set data = excluded.data;
-    delete from public.docs_import where true;
   end if;
 end $$;
 
-select 'esperando o primeiro acesso' as onde, count(*) as documentos from public.docs_import
+select 'copiados do Claude' as onde, count(*) as documentos from public.docs_import
 union all
 select 'na conta', count(*) from public.docs;
 `;

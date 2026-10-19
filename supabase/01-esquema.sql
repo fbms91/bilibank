@@ -60,7 +60,7 @@ revoke execute on function public.bilibank_um_acesso() from public, anon, authen
 drop trigger if exists bilibank_um_acesso on auth.users;
 create trigger bilibank_um_acesso before insert on auth.users for each row execute function public.bilibank_um_acesso();
 
--- dados à espera do primeiro acesso: o Claude carrega aqui antes, e o primeiro login adota tudo
+-- cópia dos dados vindos do painel no Claude: o Claude carrega aqui, e o primeiro login adota tudo
 create table if not exists public.docs_import (
   path text  primary key check (path ~ '^[^/]+(/[^/]+)+$'),
   data jsonb not null
@@ -74,7 +74,6 @@ begin
   insert into public.docs (owner, path, data)
     select new.id, path, data from public.docs_import
     on conflict (owner, path) do update set data = excluded.data;
-  delete from public.docs_import where true;
   return new;
 end $$;
 
