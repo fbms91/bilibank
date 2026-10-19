@@ -9,7 +9,7 @@
   const sb = temConfig ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true } }) : null;
 
   const docs = new Map(), ouvintes = [];
-  let uid = null, canal = null, prontoRes, iniciado = false, inscrito = false;
+  let uid = null, email = '', canal = null, prontoRes, iniciado = false, inscrito = false;
   const pronto = new Promise(r => { prontoRes = r; });
   const clone = d => JSON.parse(JSON.stringify(d));
 
@@ -85,11 +85,12 @@
   function iniciar(sessao) {
     if (iniciado || iniciando) return iniciando;
     iniciando = (async () => {
-      uid = sessao.user.id;
+      uid = sessao.user.id; email = sessao.user.email || '';
       try { await carregar(); } catch (e) { iniciando = null; mostrarLogin('Não consegui ler seus dados: ' + (e.message || e), true); return; }
       iniciado = true;
       ouvirMudancas();
       fecharLogin();
+      botaoConta();
       prontoRes(db);
     })();
     return iniciando;
@@ -134,7 +135,8 @@
   .bl-btn[disabled]{opacity:.5}
   .bl-link{background:none;border:0;color:#a3a29b;font:600 14px/1.3 "Hanken Grotesk",system-ui,-apple-system,sans-serif;cursor:pointer;padding:6px;text-decoration:underline;text-underline-offset:3px}
   .bl-msg{font-size:14px;line-height:1.45;color:#a3a29b;min-height:20px;margin:0}
-  .bl-msg.erro{color:#ff6b6b}`;
+  .bl-msg.erro{color:#ff6b6b}
+  .bl-msg.ok{color:#7ee2a8}`;
   let el = null, criar = false;
   /* o primeiro acesso cria o login já confirmado (função primeiro-acesso no Supabase);
      depois dele o banco recusa qualquer cadastro novo */
@@ -148,12 +150,13 @@
     if (!r.ok) return { erro: c.message || 'Não consegui criar o acesso.', fechado: c.code === 'fechado' };
     return {};
   }
+  function abrirTela(rotulo) {
+    if (!document.getElementById('bl-css')) { const st = document.createElement('style'); st.id = 'bl-css'; st.textContent = css; document.head.appendChild(st); }
+    if (!el) { el = document.createElement('div'); el.className = 'bl-login'; el.setAttribute('role', 'dialog'); document.body.appendChild(el); }
+    el.setAttribute('aria-label', rotulo);
+  }
   function mostrarLogin(msg, erro) {
-    if (!el) {
-      const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
-      el = document.createElement('div'); el.className = 'bl-login'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Entrar no Bilibank');
-      document.body.appendChild(el);
-    }
+    abrirTela('Entrar no Bilibank');
     if (!temConfig) {
       el.innerHTML = `<div class="bl-box"><div class="bl-brand"><div class="bl-mark">B</div><div class="bl-name">Bilibank<span>Falta configurar</span></div></div>
         <p class="bl-msg">O app ainda não está ligado ao banco de dados. O Claude termina essa parte e o app passa a abrir aqui.</p></div>`;
@@ -196,6 +199,50 @@
     return m;
   }
   function fecharLogin() { if (el) { el.remove(); el = null; } }
+
+  /* ---------- conta: trocar a senha e sair, no aparelho em que já está dentro ---------- */
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  function botaoConta() {
+    const lugar = document.querySelector('.top-actions');
+    if (!lugar || document.getElementById('bl-conta')) return;
+    const b = document.createElement('button');
+    b.id = 'bl-conta'; b.type = 'button'; b.className = 'icon-btn'; b.setAttribute('aria-label', 'Conta: trocar senha ou sair');
+    b.innerHTML = '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>';
+    b.onclick = mostrarConta;
+    lugar.appendChild(b);
+  }
+  function mostrarConta() {
+    abrirTela('Sua conta');
+    el.innerHTML = `<form class="bl-box" id="bl-form" novalidate>
+      <div class="bl-brand"><div class="bl-mark">B</div><div class="bl-name">Trocar senha<span>${esc(email)}</span></div></div>
+      <input type="email" autocomplete="username" value="${esc(email)}" hidden readonly>
+      <div><label for="bl-nova">Nova senha</label><input id="bl-nova" type="password" autocomplete="new-password" required></div>
+      <div><label for="bl-rep">Repita a nova senha</label><input id="bl-rep" type="password" autocomplete="new-password" required></div>
+      <button class="bl-btn" id="bl-ok" type="submit">Salvar senha</button>
+      <p class="bl-msg" id="bl-msg" role="status" aria-live="polite">Use pelo menos 8 caracteres. Depois, entre com ela nos outros aparelhos.</p>
+      <button class="bl-link" id="bl-volta" type="button">Voltar</button>
+      <button class="bl-link" id="bl-sair" type="button">Sair deste aparelho</button>
+    </form>`;
+    el.querySelector('#bl-volta').onclick = fecharLogin;
+    el.querySelector('#bl-sair').onclick = () => sb.auth.signOut();
+    el.querySelector('#bl-form').onsubmit = async ev => {
+      ev.preventDefault();
+      const nova = el.querySelector('#bl-nova').value, rep = el.querySelector('#bl-rep').value;
+      const m = el.querySelector('#bl-msg'), b = el.querySelector('#bl-ok');
+      const falha = t => { b.disabled = false; m.className = 'bl-msg erro'; m.textContent = t; };
+      if (nova.length < 8) return falha('Use uma senha de pelo menos 8 caracteres.');
+      if (nova !== rep) return falha('As duas senhas não estão iguais.');
+      b.disabled = true; m.className = 'bl-msg'; m.textContent = 'Salvando…';
+      const r = await sb.auth.updateUser({ password: nova });
+      if (r.error) {
+        const t = r.error.message || '';
+        return falha(/different from the old/i.test(t) ? 'Essa já é a sua senha.' : /reauth|recent/i.test(t) ? 'Por segurança, saia, entre de novo e troque a senha logo em seguida.' : traduz(t));
+      }
+      m.className = 'bl-msg ok'; m.textContent = 'Senha trocada. Use a nova para entrar nos outros aparelhos.';
+      el.querySelector('#bl-volta').textContent = 'Fechar';
+    };
+    el.querySelector('#bl-nova').focus();
+  }
 
   function comecar() {
     if (!temConfig) { mostrarLogin(); return; }
