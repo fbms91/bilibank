@@ -1,0 +1,15 @@
+{
+  "name": "bilibank",
+  "private": true,
+  "type": "module",
+  "description": "Bilibank: controle financeiro pessoal do Filipe, como app instalável (PWA).",
+  "scripts": {
+    "montar": "node scripts/montar.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.131.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

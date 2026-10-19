@@ -1,0 +1,7 @@
+node_modules/
+.vercel/
+.env*
+# dados financeiros nunca entram no repositório
+*.sql
+!supabase/01-esquema.sql
+export/
