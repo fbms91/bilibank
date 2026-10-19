@@ -554,10 +554,29 @@ function mesFatura(data, c) {
   return addMes(k, 1);
 }
 const refFatura = (id, k) => 'fatcc-' + id + ':' + k;
-const faturaCartao = (id, k) => r2(comprasCartao(id).filter(l => mesFatura(l.data, cartoes()[id]) === k).reduce((t, l) => t + num(l.valor), 0));
+const kRef = ref => String(ref).slice(String(ref).lastIndexOf(':') + 1);
+/* fatura informada: o total que o banco mostra (lanc com o ref da fatura, informado, cartaoId e fecha). Ele já inclui as compras
+   lançadas antes dele e feitas até o fechamento; as lançadas depois somam */
+const informadas = id => S.lanc.filter(x => x.informado && x.tipo === 'fatura' && x.cartaoId === id);
+const abertaInf = l => !!(l && l.informado && l.status !== 'realizado');
+/* a fatura informada que já inclui a compra l (a de fechamento mais cedo) */
+const donaDa = (l, id) => informadas(id).filter(x => x.fecha && l.data <= x.fecha && String(l.criado || '') <= String(x.criado || ''))
+  .sort((a, b) => a.fecha.localeCompare(b.fecha))[0] || null;
+const coberta = (l, id) => !!donaDa(l, id);
+/* valor da fatura informada no dia d: sem as compras que ela inclui e que ainda não tinham acontecido */
+const infEm = (x, d) => r2(num(x.valor) - comprasCartao(x.cartaoId).filter(l => l.data > d && donaDa(l, x.cartaoId) === x).reduce((t, l) => t + num(l.valor), 0));
+function faturaCartao(id, k) {
+  const inf = informadas(id).find(x => kRef(x.ref) === k);
+  return r2((inf ? num(inf.valor) : 0) + comprasCartao(id).filter(l => mesFatura(l.data, cartoes()[id]) === k && !coberta(l, id)).reduce((t, l) => t + num(l.valor), 0));
+}
 function abertoCartao(id, d, projetado) {
   const c = cartoes()[id]; let t = 0;
+  for (const x of informadas(id)) {
+    if (projetado) { if (x.status !== 'realizado' && kRef(x.ref) > ym(d)) t += num(x.valor); continue; }
+    if (!(x.status === 'realizado' && dataEf(x) <= d)) t += infEm(x, d);
+  }
   for (const l of comprasCartao(id)) {
+    if (coberta(l, id)) continue;
     if (projetado) { if (l.data <= d && mesFatura(l.data, c) > ym(d)) t += num(l.valor); continue; }
     if (l.status !== 'realizado' || dataEf(l) > d) continue;
     const pago = S.lanc.find(x => x.ref === refFatura(id, mesFatura(l.data, c)) && x.status === 'realizado' && dataEf(x) <= d);
@@ -573,7 +592,7 @@ function ocorrencias(k) {
     if ((f.desde && k < f.desde) || (f.ate && k > f.ate)) continue;
     const ref = f.id + ':' + k, data = f.dia ? diaNoMes(k, f.dia) : null;
     const l = S.lanc.find(x => x.ref === ref);
-    if (l) { out.push(Object.assign({}, l, { _f: f, data: data || l.data, mes: k })); continue; }
+    if (l) { out.push(Object.assign({}, l, { _f: f, data: data || l.data, mes: k }, abertaInf(l) ? { valor: faturaCartao(l.cartaoId, k) } : {})); continue; }
     const it = { id: 'o:' + ref, ref, gerado: true, _f: f, mes: k, data, desc: f.desc, valor: valorFixa(f), tipo: f.tipo, conta: f.conta || null,
       cat: f.cat || '', grupo: f.grupo || f.desc, status: 'previsto', est: (f.valor == null && f.min != null) || !!f.aprox, confirmar: f.confirmar || null };
     if (data && S.cfg && data < S.cfg.inicio) it.status = 'anterior';
@@ -582,7 +601,7 @@ function ocorrencias(k) {
   for (const id of cartoesPorCompra()) {
     const c = cartoes()[id], ref = refFatura(id, k), data = c.vence ? diaNoMes(k, c.vence) : null;
     const l = S.lanc.find(x => x.ref === ref);
-    if (l) { out.push(Object.assign({}, l, { data: data || l.data, mes: k, cartaoId: id })); continue; }
+    if (l) { out.push(Object.assign({}, l, { data: data || l.data, mes: k, cartaoId: id }, abertaInf(l) ? { valor: faturaCartao(id, k) } : {})); continue; }
     const v = faturaCartao(id, k);
     if (!(v > 0)) continue;
     const it = { id: 'o:' + ref, ref, gerado: true, mes: k, data, desc: 'Fatura do ' + c.nome, valor: v, tipo: 'fatura', conta: c.pagaCom || null,
@@ -592,7 +611,7 @@ function ocorrencias(k) {
   }
   return out;
 }
-const avulsos = () => S.lanc.filter(l => l.status === 'previsto' && !fixaDoRef(l.ref));
+const avulsos = () => S.lanc.filter(l => l.status === 'previsto' && !fixaDoRef(l.ref) && !String(l.ref || '').startsWith('fatcc-'));
 /* tudo o que ainda vai acontecer no mês k (no mês atual, também o que está atrasado ou sem data) */
 function itensMes(k) {
   const occ = ocorrencias(k).filter(x => x.status === 'previsto');
@@ -696,6 +715,16 @@ function folga(sim) {
 /* patrimônio */
 const faturaF = () => S.fixas.find(f => f.tipo === 'fatura' && f.ativo !== false);
 function faturaEst(i) { const f = faturaF(); if (!f) return 0; const b = valorFixa(f); return num([f.max ?? b, b, f.min ?? b][i]); }
+/* fatura da conta fixa em aberto no dia d, quando o valor foi informado: { k, v } */
+function faturaInfEm(d) {
+  const f = faturaF(); if (!f) return null;
+  const k = parseD(d).getDate() <= num(f.dia || 31) ? ym(d) : addMes(ym(d), 1);
+  const l = S.lanc.find(x => x.ref === f.id + ':' + k);
+  if (!(l && l.informado && !(l.status === 'realizado' && dataEf(l) <= d))) return null;
+  const c = cartoes()[l.cartaoId];
+  return { k, v: r2(infEm(l, d) + comprasCartao(l.cartaoId).filter(x => x.data <= d && mesFatura(x.data, c) === k && !coberta(x, l.cartaoId)).reduce((t, x) => t + num(x.valor), 0)) };
+}
+const faturaEm = (d, i) => { const x = faturaInfEm(d); return x ? x.v : faturaEst(i); };
 const atrasadosEm = d => S.lanc.filter(l => l.atrasado && String(l.criado || '').slice(0, 10) <= d && (l.status !== 'realizado' || dataEf(l) > d)).reduce((t, l) => t + num(l.valor), 0);
 const dividas = () => (S.cfg && S.cfg.dividas) || [];
 const dividasConhecidas = () => dividas().reduce((t, x) => t + num(x.saldo), 0);
@@ -716,14 +745,14 @@ function parcelasRestantes(f, d, projetado) {
 }
 const parceladas = (d, projetado) => ativas().filter(f => f.divida).map(f => { const n = parcelasRestantes(f, d, projetado).length; return { f, n, saldo: r2(n * num(valorFixa(f))) }; }).filter(x => x.n);
 const dividaParcelas = (d, projetado) => parceladas(d, projetado).reduce((t, x) => t + x.saldo, 0);
-function plEm(d) { const { s } = saldosAte(d); return caixaDe(s) + reservaDe(s) - faturaEst(1) - abertoCartoes(d, false) - atrasadosEm(d) - dividasConhecidas() - dividaParcelas(d, false); }
+function plEm(d) { const { s } = saldosAte(d); return caixaDe(s) + reservaDe(s) - faturaEm(d, 1) - abertoCartoes(d, false) - atrasadosEm(d) - dividasConhecidas() - dividaParcelas(d, false); }
 function plHist() {
   const ini = S.cfg.inicio, n = Math.max(0, diffDays(TODAY, ini)), step = n > 120 ? 7 : 1, out = [];
   for (let i = 0; i <= n; i += step) { const d = addDays(ini, i); out.push({ d, v: plEm(d) }); }
   if (out[out.length - 1].d !== TODAY) out.push({ d: TODAY, v: plEm(TODAY) });
   return out;
 }
-const plProj = i => simular(i).meses.map(m => ({ d: mesFim(m.k), v: m.fim + m.fimR - faturaEst(i) - abertoCartoes(mesFim(m.k), true) - dividasConhecidas() - dividaParcelas(mesFim(m.k), true) }));
+const plProj = i => simular(i).meses.map(m => ({ d: mesFim(m.k), v: m.fim + m.fimR - faturaEm(mesFim(m.k), i) - abertoCartoes(mesFim(m.k), true) - dividasConhecidas() - dividaParcelas(mesFim(m.k), true) }));
 /* "Parcela 3 de 12" ou "Último pagamento" */
 const tagParcela = x => {
   const f = x._f; if (!f || !x.mes) return '';
@@ -772,6 +801,7 @@ function prazo(d) {
 function acharItem(id) {
   if (String(id).startsWith('o:')) { const ref = id.slice(2), k = ref.slice(ref.lastIndexOf(':') + 1); return ocorrencias(k).find(x => x.id === id) || null; }
   const l = S.lanc.find(x => x.id === id); if (!l) return null;
+  if (abertaInf(l)) { const o = ocorrencias(kRef(l.ref)).find(x => x.id === id); if (o) return o; }
   const f = fixaDoRef(l.ref);
   return Object.assign({}, l, f ? { _f: f } : {});
 }
@@ -873,7 +903,7 @@ function vInicio() {
     <div class="c-val">${aprox && !S.hidden ? '≈ ' : ''}${val}</div><div class="c-lines">${lines.map(l => `<div>${l[0]}<b class="${l[2] || ''}">${l[1]}</b></div>`).join('')}</div></section>`;
   const accs = idsCaixa().map(k => { const f = fotoSaldo(k); return acc('d-' + k, contas()[k].nome, money(s[k]), [['Saldo conferido em', dm(f.d)], ['Mexeu desde então', money(s[k] - f.v, true)]], contas()[k].aprox && f.cfg); }).join('')
     + idsReserva().map(k => acc('d-reserva', contas()[k].nome, money(s[k]), [['Rende por mês', contas()[k].rendMes ? '≈ ' + money(contas()[k].rendMes) : '—'], ['Guardado para a meta', money(mt ? mt.feito : 0)]])).join('')
-    + (ff ? acc('d-cartao', cc.nome || 'Cartão', ff.min != null ? `${moneyK(ff.min)} a ${moneyK(ff.max).replace('R$ ', '')}` : money(valorFixa(ff) || 0),
+    + (ff ? acc('d-cartao', cc.nome || 'Cartão', faturaInfEm(TODAY) ? money(faturaInfEm(TODAY).v) : ff.min != null ? `${moneyK(ff.min)} a ${moneyK(ff.max).replace('R$ ', '')}` : money(valorFixa(ff) || 0),
       [['Fatura vence todo dia', String(cc.vence || ff.dia || '—')], ['Compras lançadas desde ' + dm(S.cfg.inicio), money(comprasCC)]]) : '')
     + cartoesPorCompra().map(id => { const c = cartoes()[id]; return acc('d-cartao', c.nome, money(abertoCartao(id, TODAY, false)),
       [['Fatura vence todo dia', c.vence ? String(c.vence) : 'a informar'], ['Compras lançadas desde ' + dm(S.cfg.inicio), money(compraCartaoDesde(id))]]); }).join('')
@@ -1105,7 +1135,7 @@ function vPatrimonio() {
   if (Math.abs(s.semconta) > 0.004) at.push(['Sem conta definida', s.semconta]);
   const atr = atrasadosEm(TODAY);
   const parc = parceladas(TODAY, false);
-  const pa = [[faturaF() ? 'Fatura do ' + contaNome(faturaF().cartaoId || 'cartao') : 'Fatura em aberto', faturaEst(1), true]]
+  const pa = [[faturaF() ? 'Fatura do ' + contaNome(faturaF().cartaoId || 'cartao') : 'Fatura em aberto', faturaEm(TODAY, 1), !faturaInfEm(TODAY)]]
     .concat(cartoesPorCompra().map(id => ['Fatura do ' + contaNome(id), abertoCartao(id, TODAY, false)]).filter(x => x[1] > 0.004))
     .concat(atr ? [['Contas atrasadas', atr]] : [])
     .concat(parc.map(x => [`${x.f.desc} (${x.n} ${x.n > 1 ? 'parcelas' : 'parcela'})`, x.saldo]))
@@ -1774,11 +1804,34 @@ function acharFixa(o, texto) {
   const fam = o.tipo === 'receita' ? ['receita'] : o.tipo === 'despesa' || o.tipo === 'fatura' ? ['despesa', 'fatura'] : [];
   return ativas().find(f => !f.cartao && fam.includes(f.tipo) && (f.chaves || [f.desc]).some(c => new RegExp('\\b' + semAcento(c).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(t))) || null;
 }
+/* "paguei a fatura do sicoob": liga à fatura em aberto desse cartão (a de mesmo valor, senão a mais antiga) */
+const chavesCartao = k => cartoes()[k].chaves || [semAcento(contaNome(k)).replace(/^cartao\s+(d[eo]\s+)?/, '')];
+function ligarFatura(o, texto) {
+  const t = ' ' + semAcento(texto + ' ' + o.desc) + ' ', i0 = t.indexOf('fatura');
+  if (o.tipo !== 'fatura' && i0 < 0) return false;
+  let id = null, pos = Infinity;
+  for (const k of idsCartao()) for (const c of chavesCartao(k)) {
+    const m = new RegExp('\\b' + semAcento(c) + '\\b', 'g'); let r;
+    while ((r = m.exec(t))) if (r.index > i0 && r.index < pos) { pos = r.index; id = k; }
+  }
+  if (!id || !cartoesPorCompra().includes(id)) return false;
+  const ks = new Set(informadas(id).filter(abertaInf).map(x => kRef(x.ref)));
+  for (const l of comprasCartao(id)) if (!coberta(l, id)) ks.add(mesFatura(l.data, cartoes()[id]));
+  const abertas = [...ks].filter(k => !S.lanc.some(x => x.ref === refFatura(id, k) && x.status === 'realizado')).sort();
+  const k = abertas.find(k => Math.abs(faturaCartao(id, k) - num(o.valor)) < 0.01) || abertas[0];
+  o.tipo = 'fatura'; o.cat = 'Cartão'; o.desc = o.grupo = o.fixaNome = 'Fatura do ' + contaNome(id);
+  if (k) o.ref = refFatura(id, k);
+  return true;
+}
 function ligarFixa(o, texto, id) {
   if (o.parcela) return;
+  if (ligarFatura(o, texto)) return;
   const f = (id && S.fixas.find(x => x.id === id && !x.cartao)) || acharFixa(o, texto);
   if (!f) return;
-  const ref = f.id + ':' + ym(o.data);
+  let k = ym(o.data);
+  /* fatura paga antes do vencimento: se a deste mês já foi paga (ou é de antes do início), é a do mês seguinte */
+  if (f.tipo === 'fatura' && (S.lanc.some(l => l.ref === f.id + ':' + k && l.status === 'realizado') || (f.dia && S.cfg && diaNoMes(k, f.dia) < S.cfg.inicio))) k = addMes(k, 1);
+  const ref = f.id + ':' + k;
   const ja = S.lanc.find(l => l.ref === ref && l.status === 'realizado');
   if (!ja) { o.ref = ref; o.fixaNome = f.desc; if (f.tipo === 'fatura') o.tipo = 'fatura'; o.grupo = f.grupo || f.desc; if (!o.cat || o.cat === 'Outros') o.cat = f.cat || o.cat; }
 }
@@ -2030,6 +2083,8 @@ async function confirmar() {
       if (l.contaDest) doc.contaDest = l.contaDest;
       if (l.parcela) doc.parcela = l.parcela;
       if (l.ref) { doc.ref = l.ref; doc.grupo = l.grupo || null; }
+      const inf = l.ref && S.lanc.find(x => x.ref === l.ref && x.informado);
+      if (inf) Object.assign(doc, { informado: true, cartaoId: inf.cartaoId, fecha: inf.fecha || null });
       const ref = l.ref ? S.db.doc('lanc/' + l.ref.replace(/:/g, '-')) : S.db.collection('lanc').doc();
       await ref.set(doc);
       ids.push(ref.id);
