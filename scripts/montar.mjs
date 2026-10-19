@@ -4,6 +4,7 @@
    No Vercel ele roda sozinho a cada publicação e também escreve public/config.js com o endereço e a
    chave pública do Supabase (variáveis SUPABASE_URL e SUPABASE_ANON_KEY). Localmente: npm run montar */
 import { readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -26,6 +27,7 @@ const html = `<!doctype html>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bilibank">
+<meta name="bili-versao" content="__VERSAO__">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -41,8 +43,11 @@ ${corpo.trim()}
 </body>
 </html>
 `;
-writeFileSync(path.join(raiz, "public/index.html"), html);
-console.log("public/index.html montado (" + Math.round(html.length / 1024) + " KB)");
+/* versão da montagem: o app aberto confere versao.txt ao voltar para a tela e recarrega se mudou */
+const versao = createHash("sha256").update(html).update(readFileSync(path.join(raiz, "public/bili-app.js"))).digest("hex").slice(0, 12);
+writeFileSync(path.join(raiz, "public/index.html"), html.replace("__VERSAO__", versao));
+writeFileSync(path.join(raiz, "public/versao.txt"), versao + "\n");
+console.log("public/index.html montado (" + Math.round(html.length / 1024) + " KB, versão " + versao + ")");
 
 /* só a chave pública (publishable ou anon) vai para o navegador; a service_role e a do Claude nunca */
 const url = (process.env.SUPABASE_URL || "").trim(), anon = (process.env.SUPABASE_ANON_KEY || "").trim();

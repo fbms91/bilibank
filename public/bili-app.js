@@ -79,7 +79,21 @@
   }
   /* ao voltar para o app (celular dormiu, rede caiu), relê tudo para não perder nada */
   async function recarregar() { try { await carregar(); avisar(); } catch (e) { console.error(e); } }
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && iniciado) recarregar(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { versaoNova(); if (iniciado) recarregar(); } });
+
+  /* o iPhone deixa o app aberto em segundo plano por dias: ao voltar, se o painel foi atualizado, recarrega.
+     Não recarrega no meio de um lançamento, de uma baixa ou da tela de entrada; tenta de novo na próxima volta */
+  async function versaoNova() {
+    const atual = (document.querySelector('meta[name="bili-versao"]') || {}).content;
+    if (!atual || atual === '__VERSAO__') return;
+    let nova = '';
+    try { nova = (await (await fetch('versao.txt', { cache: 'no-store' })).text()).trim(); } catch (e) { return; }
+    if (!/^[0-9a-f]{12}$/.test(nova) || nova === atual) return;
+    const fala = document.getElementById('fala'), sheet = document.getElementById('sheet');
+    let ocupado = !!el || !!(fala && fala.value.trim()) || !!(sheet && !sheet.hidden);
+    try { const d = S.draft; ocupado = ocupado || !!S.baixa || !!S.pf || !!S.form || !!(d && ((d.texto || '').trim() || d.res || d.loading)); } catch (e) { /* painel ainda carregando */ }
+    if (!ocupado) location.reload();
+  }
 
   let iniciando = null;
   function iniciar(sessao) {
@@ -90,7 +104,6 @@
       iniciado = true;
       ouvirMudancas();
       fecharLogin();
-      botaoConta();
       prontoRes(db);
     })();
     return iniciando;
@@ -200,17 +213,10 @@
   }
   function fecharLogin() { if (el) { el.remove(); el = null; } }
 
-  /* ---------- conta: trocar a senha e sair, no aparelho em que já está dentro ---------- */
+  /* ---------- conta: trocar a senha e sair, no aparelho em que já está dentro ----------
+     a aba Perfil do painel mostra a conta só quando biliConta existe (no app; no Claude não) */
   const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-  function botaoConta() {
-    const lugar = document.querySelector('.top-actions');
-    if (!lugar || document.getElementById('bl-conta')) return;
-    const b = document.createElement('button');
-    b.id = 'bl-conta'; b.type = 'button'; b.className = 'icon-btn'; b.setAttribute('aria-label', 'Conta: trocar senha ou sair');
-    b.innerHTML = '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>';
-    b.onclick = mostrarConta;
-    lugar.appendChild(b);
-  }
+  window.biliConta = { email: () => email, trocarSenha: () => mostrarConta(), sair: () => sb && sb.auth.signOut() };
   function mostrarConta() {
     abrirTela('Sua conta');
     el.innerHTML = `<form class="bl-box" id="bl-form" novalidate>
@@ -252,6 +258,5 @@
       if (sessao && !iniciado) iniciar(sessao);
     });
   }
-  window.biliSair = () => sb && sb.auth.signOut();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', comecar); else comecar();
 })();
