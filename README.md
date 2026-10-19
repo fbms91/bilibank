@@ -2,18 +2,19 @@
 
 O Bilibank como app no iPhone: o mesmo painel que roda no Claude, instalado na tela de início pelo Safari.
 
+**Endereço:** https://fbms91.github.io/bilibank/ (GitHub Pages, branch `gh-pages`).
+
 - **Tela:** `painel/bilibank.html`, cópia exata do painel publicado no Claude. Na publicação, `scripts/montar.mjs` gera `public/index.html` com a casca de app (ícone, tela cheia, funciona sem internet).
 - **Dados:** Supabase. Cada documento do painel (`config/base`, `fixas/<id>`, `lanc/<id>`) é uma linha da tabela `docs`. Só quem está logado lê e grava os próprios dados.
 - **Acesso:** um único login. O primeiro acesso cria a senha pela função `primeiro-acesso`; depois disso o próprio banco recusa qualquer cadastro novo.
-- **Lançar por voz:** sem a chave do Claude, o app entende as frases com o leitor do próprio painel. Com a chave, a frase vai para `api/interpretar.js`, que chama a API do Claude no servidor.
+- **Lançar por voz:** hoje o app entende as frases com o leitor do próprio painel (`interpretar` vazio em `public/config.js`). Para usar o Claude, a frase precisa de um servidor com a chave da API: `api/interpretar.js` roda no Vercel, se um dia o app for para lá.
 - **Ligação:** `public/bili-app.js` liga o painel a tudo isso. O painel não muda nada para virar app.
 
 ## Pôr no ar
 
 ### Parte do Filipe (só cliques)
 1. Entrar em supabase.com com **Continue with GitHub**. Depois, conectar o **Supabase** no Claude, em Configurações → Conectores.
-2. Entrar em vercel.com com **Continue with GitHub**. Tocar em **Add New → Project**, escolher **bilibank** e tocar em **Deploy**. Mandar o endereço para o Claude.
-3. No iPhone:
+2. No iPhone:
    1. Abrir o endereço no **Safari**.
    2. Tocar em **Compartilhar → Adicionar à Tela de Início**.
    3. Abrir pelo ícone, tocar em **Primeiro acesso** e criar a senha.
@@ -26,10 +27,13 @@ O Bilibank como app no iPhone: o mesmo painel que roda no Claude, instalado na t
    1. Exportar o banco do painel no Claude para uma pasta fora do repositório.
    2. Gerar o SQL com `node scripts/gerar-migracao.mjs <pasta> <saida.sql>` e rodá-lo no projeto.
    3. Pode rodar antes do primeiro acesso: os dados ficam em `docs_import` (cópia do que veio do Claude) e o primeiro login adota tudo.
-5. Pôr a Project URL e a chave **publishable** em `public/config.js` e mandar para o GitHub. O Vercel publica sozinho a cada envio.
+5. Pôr a Project URL e a chave **publishable** em `public/config.js` e mandar para o GitHub.
+6. Publicar com `bash scripts/publicar.sh`: monta `public/` e envia para a branch `gh-pages`.
 
 ### Depois, se quiser: interpretação pelo Claude
-1. No Vercel, em **Settings → Environment Variables**, preencher:
+O GitHub Pages só serve arquivos, então a interpretação pelo Claude pede o Vercel (ou outro servidor):
+
+1. No Vercel, importar o repositório e, em **Settings → Environment Variables**, preencher:
 
 | Nome | Valor |
 |---|---|
@@ -51,7 +55,7 @@ O Bilibank como app no iPhone: o mesmo painel que roda no Claude, instalado na t
 
 ## Quando o painel mudar
 1. Copie o painel novo para `painel/bilibank.html`.
-2. Mande para o GitHub. O Vercel publica sozinho, e o app no iPhone pega a versão nova na próxima abertura com internet.
+2. Mande para o GitHub e rode `bash scripts/publicar.sh`. O app no iPhone pega a versão nova na próxima abertura com internet.
 
 Para testar a montagem localmente, rode `npm run montar`.
 
