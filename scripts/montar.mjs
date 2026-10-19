@@ -26,18 +26,18 @@ const html = `<!doctype html>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bilibank">
-<link rel="manifest" href="/manifest.webmanifest">
-<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-<link rel="icon" type="image/png" href="/icons/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
 ${cabeca.trim()}
 <style>html,body{margin:0;-webkit-text-size-adjust:100%}body{overscroll-behavior-y:none}</style>
-<script src="/config.js"></script>
-<script src="/vendor/supabase-2.117.2.js"></script>
-<script src="/bili-app.js"></script>
+<script src="config.js"></script>
+<script src="vendor/supabase-2.117.2.js"></script>
+<script src="bili-app.js"></script>
 </head>
 <body>
 ${corpo.trim()}
-<script>if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));</script>
+<script>if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));</script>
 </body>
 </html>
 `;
@@ -51,6 +51,6 @@ if (url && anon) {
     throw new Error("SUPABASE_ANON_KEY está com a chave secreta. Use a chave pública (publishable ou anon).");
   }
   writeFileSync(path.join(raiz, "public/config.js"),
-    `/* gerado por scripts/montar.mjs a partir das variáveis do Vercel */\nwindow.BILI_CONFIG = ${JSON.stringify({ supabaseUrl: url, supabaseAnonKey: anon })};\n`);
+    `/* gerado por scripts/montar.mjs a partir das variáveis do Vercel */\nwindow.BILI_CONFIG = ${JSON.stringify({ supabaseUrl: url, supabaseAnonKey: anon, interpretar: "api/interpretar" })};\n`);
   console.log("public/config.js escrito com o Supabase de " + new URL(url).host);
 }

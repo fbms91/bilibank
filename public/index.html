@@ -9,9 +9,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bilibank">
-<link rel="manifest" href="/manifest.webmanifest">
-<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-<link rel="icon" type="image/png" href="/icons/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
 <title>Bilibank</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -352,9 +352,9 @@ svg.i{width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-widt
 }
 </style>
 <style>html,body{margin:0;-webkit-text-size-adjust:100%}body{overscroll-behavior-y:none}</style>
-<script src="/config.js"></script>
-<script src="/vendor/supabase-2.117.2.js"></script>
-<script src="/bili-app.js"></script>
+<script src="config.js"></script>
+<script src="vendor/supabase-2.117.2.js"></script>
+<script src="bili-app.js"></script>
 </head>
 <body>
 <div class="app">
@@ -2120,6 +2120,6 @@ window.addEventListener('hashchange', () => { const h = location.hash.slice(1); 
 
 go(VIEWS[location.hash.slice(1)] ? location.hash.slice(1) : 'inicio', true);
 </script>
-<script>if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));</script>
+<script>if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));</script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 /* Bilibank como app: o painel é o mesmo arquivo publicado no Claude.
    Aqui trocamos só as duas portas que ele usa:
    - claude.use('db')     → Supabase (login + tabela "docs", com tempo real)
-   - claude.use('sample') → /api/interpretar (API do Claude, chave guardada no Vercel)
+   - claude.use('sample') → CFG.interpretar (API do Claude, chave guardada no servidor); vazio = leitor do painel
    O banco guarda um documento por caminho (config/base, fixas/<id>, lanc/<id>), igual ao do Claude. */
 (function () {
   const CFG = window.BILI_CONFIG || {};
@@ -102,7 +102,7 @@
     if (!token) throw { code: 'not_granted', message: 'Entre no app de novo.' };
     let r;
     try {
-      r = await fetch('/api/interpretar', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ input, json }) });
+      r = await fetch(CFG.interpretar, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ input, json }) });
     } catch (e) { throw { code: 'rede', message: 'Sem internet agora.' }; }
     const corpo = await r.json().catch(() => ({}));
     /* sem a chave do Claude no servidor, o painel deixa de tentar e usa o leitor próprio */
@@ -115,7 +115,8 @@
   sample.limits = async () => ({ images: false });
 
   window.BILI_APP = true;
-  window.claude = { use: nome => nome === 'db' ? pronto : nome === 'sample' ? pronto.then(() => sample) : Promise.resolve(null) };
+  /* sem endereço de interpretação (site só de arquivos), o painel usa o leitor próprio direto */
+  window.claude = { use: nome => nome === 'db' ? pronto : nome === 'sample' ? pronto.then(() => CFG.interpretar ? sample : null) : Promise.resolve(null) };
 
   /* ---------- tela de entrada (preto e branco, como o logo) ---------- */
   const css = `
